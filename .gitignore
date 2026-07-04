@@ -1,0 +1,22 @@
+# Android / Gradle
+*.iml
+.gradle/
+/local.properties
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+*.apk.idsig
+
+# Keep the published release APK in the repo root for the GitHub release,
+# but ignore intermediate build outputs.
+/app/build/
+/build/
+
+# IDE
+.idea/
+*.hprof
+
+# Kotlin
+.kotlin/

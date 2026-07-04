@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">GPS Camera</string>
+    <string name="capture">Capture</string>
+    <string name="gallery">Gallery</string>
+    <string name="permissions_title">Camera &amp; Location needed</string>
+    <string name="permissions_rationale">GPS Camera stamps each photo with your exact location, so it needs camera and location access.</string>
+    <string name="grant">Grant permissions</string>
+    <string name="acquiring_location">Acquiring GPS fix…</string>
+    <string name="no_photos">No photos yet. Capture your first geotagged shot!</string>
+</resources>
