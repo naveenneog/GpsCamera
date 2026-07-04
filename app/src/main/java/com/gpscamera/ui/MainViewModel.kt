@@ -1,11 +1,24 @@
 package com.gpscamera.ui
 
+import android.Manifest
+import android.annotation.SuppressLint
 import android.app.Application
+import android.content.ContentValues
+import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.net.Uri
+import android.os.Environment
+import android.provider.MediaStore
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.ImageProxy
+import androidx.camera.video.MediaStoreOutputOptions
+import androidx.camera.video.Recorder
+import androidx.camera.video.Recording
+import androidx.camera.video.VideoCapture
+import androidx.camera.video.VideoRecordEvent
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.gpscamera.camera.GalleryRepository
@@ -18,6 +31,7 @@ import com.gpscamera.model.GeoFix
 import com.gpscamera.util.GpsFormat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -25,6 +39,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 import java.util.concurrent.Executor
 import kotlin.coroutines.resume
@@ -32,9 +48,11 @@ import kotlin.coroutines.resume
 /** Position (0..1 of image) and size of the burned-in GPS block, controlled by the user. */
 data class StampTransform(
     val anchorX: Float = 0.5f,
-    val anchorY: Float = 0.82f,
+    val anchorY: Float = 0.68f,
     val scale: Float = 1f
 )
+
+enum class CaptureMode { PHOTO, VIDEO }
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -68,8 +86,24 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _darkTheme = MutableStateFlow<Boolean?>(null)
     val darkTheme: StateFlow<Boolean?> = _darkTheme.asStateFlow()
 
+    private val _mode = MutableStateFlow(CaptureMode.PHOTO)
+    val mode: StateFlow<CaptureMode> = _mode.asStateFlow()
+
+    private val _isRecording = MutableStateFlow(false)
+    val isRecording: StateFlow<Boolean> = _isRecording.asStateFlow()
+
+    private val _recordSeconds = MutableStateFlow(0)
+    val recordSeconds: StateFlow<Int> = _recordSeconds.asStateFlow()
+
     private var locationJob: Job? = null
     private var lastMapKey: String? = null
+    private var activeRecording: Recording? = null
+    private var recordTimerJob: Job? = null
+
+    fun toggleMode() {
+        if (_isRecording.value) return
+        _mode.value = if (_mode.value == CaptureMode.PHOTO) CaptureMode.VIDEO else CaptureMode.PHOTO
+    }
 
     /** Begin streaming location updates. Safe to call repeatedly (idempotent). */
     fun startLocation() {
@@ -87,6 +121,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (key == lastMapKey) return
         lastMapKey = key
         mapProvider.fetch(fix.latitude, fix.longitude)?.let { _mapBitmap.value = it }
+    }
+
+    /** Map thumbnail for a capture: reuse the cached one if it matches, else fetch now. */
+    private suspend fun mapForCapture(fix: GeoFix): Bitmap? {
+        val key = String.format(Locale.US, "%.4f,%.4f", fix.latitude, fix.longitude)
+        if (key == lastMapKey && _mapBitmap.value != null) return _mapBitmap.value
+        val fetched = withTimeoutOrNull(6000L) { mapProvider.fetch(fix.latitude, fix.longitude) }
+        if (fetched != null) {
+            _mapBitmap.value = fetched
+            lastMapKey = key
+        }
+        return fetched ?: _mapBitmap.value
     }
 
     fun refreshGallery() {
@@ -115,6 +161,85 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     // ---- Theme ----
 
     fun toggleTheme(currentlyDark: Boolean) { _darkTheme.value = !currentlyDark }
+
+    // ---- Video recording ----
+
+    /** Start a new recording, or stop the active one. Video is saved to Movies/GPSCamera. */
+    @SuppressLint("MissingPermission")
+    fun startOrStopRecording(videoCapture: VideoCapture<Recorder>, executor: Executor) {
+        val ctx = getApplication<Application>()
+        if (_isRecording.value) {
+            activeRecording?.stop()
+            activeRecording = null
+            return
+        }
+        val name = "GPS_VID_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date()) + ".mp4"
+        val values = ContentValues().apply {
+            put(MediaStore.Video.Media.DISPLAY_NAME, name)
+            put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
+            put(
+                MediaStore.Video.Media.RELATIVE_PATH,
+                Environment.DIRECTORY_MOVIES + "/" + PhotoSaver.FOLDER
+            )
+        }
+        val output = MediaStoreOutputOptions
+            .Builder(ctx.contentResolver, MediaStore.Video.Media.EXTERNAL_CONTENT_URI)
+            .setContentValues(values)
+            .build()
+
+        val hasAudio = ContextCompat.checkSelfPermission(
+            ctx, Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+
+        try {
+            var pending = videoCapture.output.prepareRecording(ctx, output)
+            if (hasAudio) pending = pending.withAudioEnabled()
+            activeRecording = pending.start(executor) { event ->
+                when (event) {
+                    is VideoRecordEvent.Start -> {
+                        _isRecording.value = true
+                        startRecordTimer()
+                    }
+                    is VideoRecordEvent.Finalize -> {
+                        _isRecording.value = false
+                        stopRecordTimer()
+                        if (event.hasError()) {
+                            _message.value = "Recording failed (code ${event.error})"
+                        } else {
+                            _message.value = "Video saved to Movies/GPSCamera"
+                            refreshGallery()
+                        }
+                    }
+                }
+            }
+        } catch (t: Throwable) {
+            _isRecording.value = false
+            _message.value = "Couldn't start recording: ${t.message}"
+        }
+    }
+
+    private fun startRecordTimer() {
+        _recordSeconds.value = 0
+        recordTimerJob?.cancel()
+        recordTimerJob = viewModelScope.launch {
+            while (true) {
+                delay(1000)
+                _recordSeconds.value = _recordSeconds.value + 1
+            }
+        }
+    }
+
+    private fun stopRecordTimer() {
+        recordTimerJob?.cancel()
+        recordTimerJob = null
+        _recordSeconds.value = 0
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        activeRecording?.stop()
+        recordTimerJob?.cancel()
+    }
 
     /**
      * Take a photo end-to-end. A 20s timeout guards against camera HALs that never
@@ -173,7 +298,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val lines = enriched?.let { GpsFormat.buildStampLines(it) }
             ?: listOf("GPS Camera", "Location unavailable")
         val transform = _stamp.value
-        val map = _mapBitmap.value
+        // Guarantee the map is on the photo: use the cached one, otherwise fetch it now
+        // (best-effort with a timeout) for the exact captured coordinates.
+        val map = enriched?.let { mapForCapture(it) } ?: _mapBitmap.value
         val stamped = withContext(Dispatchers.Default) {
             PhotoStamper.stamp(
                 src = bitmap,

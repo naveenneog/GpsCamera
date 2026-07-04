@@ -1,6 +1,7 @@
 package com.gpscamera.ui
 
 import android.Manifest
+import android.os.Build
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -31,15 +32,32 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
+import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
 
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
 fun AppRoot(viewModel: MainViewModel, isDark: Boolean, onToggleTheme: () -> Unit) {
     val context = LocalContext.current
+    // Camera + location are required; microphone (video audio) and photo access
+    // (in-app gallery) are requested too but optional.
+    val optionalMedia = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        listOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.READ_MEDIA_IMAGES)
+    } else {
+        listOf(Manifest.permission.RECORD_AUDIO)
+    }
     val permissions = rememberMultiplePermissionsState(
-        listOf(Manifest.permission.CAMERA, Manifest.permission.ACCESS_FINE_LOCATION)
+        listOf(
+            Manifest.permission.CAMERA,
+            Manifest.permission.ACCESS_FINE_LOCATION
+        ) + optionalMedia
     )
+    val ready = permissions.permissions
+        .filter {
+            it.permission == Manifest.permission.CAMERA ||
+                it.permission == Manifest.permission.ACCESS_FINE_LOCATION
+        }
+        .all { it.status.isGranted }
 
     val message by viewModel.message.collectAsStateWithLifecycle()
     LaunchedEffect(message) {
@@ -49,7 +67,7 @@ fun AppRoot(viewModel: MainViewModel, isDark: Boolean, onToggleTheme: () -> Unit
         }
     }
 
-    if (permissions.allPermissionsGranted) {
+    if (ready) {
         LaunchedEffect(Unit) {
             viewModel.startLocation()
             viewModel.refreshGallery()

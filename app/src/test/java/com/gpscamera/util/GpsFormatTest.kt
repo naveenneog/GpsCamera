@@ -103,23 +103,23 @@ class GpsFormatTest {
             address = "MG Road, Bengaluru, India"
         )
         val lines = GpsFormat.buildStampLines(fix, TimeZone.getTimeZone("UTC"))
-        assertThat(lines).hasSize(5)
+        // Address, decimal coordinates, altitude+accuracy, timestamp — no DMS line.
+        assertThat(lines).hasSize(4)
         assertThat(lines[0]).isEqualTo("MG Road, Bengaluru, India")
-        assertThat(lines[1]).contains("12°58'42.10\"N")
-        assertThat(lines[1]).contains("77°35'57.77\"E")
-        assertThat(lines[2]).isEqualTo("12.978361°, 77.599380°")
-        assertThat(lines[3]).contains("Alt 842 m")
-        assertThat(lines[3]).contains("±5 m")
+        assertThat(lines[1]).isEqualTo("12.978361°, 77.599380°")
+        assertThat(lines[2]).contains("Alt 842 m")
+        assertThat(lines[2]).contains("±5 m")
+        // Ensure the DMS format is not present anywhere in the stamp.
+        assertThat(lines.none { it.contains("\"") }).isTrue()
     }
 
     @Test
     fun buildStampLines_omitsAddressWhenAbsent() {
         val fix = GeoFix(latitude = 1.0, longitude = 2.0, timestampMs = 0L)
         val lines = GpsFormat.buildStampLines(fix, TimeZone.getTimeZone("UTC"))
-        assertThat(lines).hasSize(4)
-        // first line should be the DMS coordinates, not an address
-        assertThat(lines[0]).contains("N")
-        assertThat(lines[0]).contains("E")
+        // Decimal coordinates, altitude+accuracy, timestamp.
+        assertThat(lines).hasSize(3)
+        assertThat(lines[0]).isEqualTo("1.000000°, 2.000000°")
     }
 
     @Test

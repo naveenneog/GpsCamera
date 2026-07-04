@@ -72,17 +72,14 @@ object GpsFormat {
 
     /**
      * The multi-line text block burned onto each photo. Order (top→bottom):
-     *   1. Address (omitted when unavailable)
-     *   2. Lat/Long DMS
+     *   1. Address (reverse-geocoded; omitted only when unavailable)
+     *   2. Lat/Long in decimal degrees
      *   3. Altitude + accuracy
      *   4. Timestamp
      */
     fun buildStampLines(fix: GeoFix, timeZone: TimeZone = TimeZone.getDefault()): List<String> {
         val lines = mutableListOf<String>()
         fix.address?.takeIf { it.isNotBlank() }?.let { lines.add(it) }
-        lines.add(
-            "${formatDms(fix.latitude, true)}  ${formatDms(fix.longitude, false)}"
-        )
         lines.add(formatDecimalPair(fix.latitude, fix.longitude))
         val altAcc = listOf(formatAltitude(fix.altitude), formatAccuracy(fix.accuracyM))
             .filter { it.isNotBlank() }
