@@ -81,7 +81,7 @@ class GpsFormatTest {
     @Test
     fun formatDecimalPair_hasSixDecimals() {
         assertThat(GpsFormat.formatDecimalPair(12.978361, 77.599380))
-            .isEqualTo("12.978361°, 77.599380°")
+            .isEqualTo("Lat 12.978361 , Long 77.599380")
     }
 
     @Test
@@ -100,37 +100,46 @@ class GpsFormatTest {
             altitude = 842.0,
             accuracyM = 5f,
             timestampMs = 0L,
-            address = "MG Road, Bengaluru, India"
+            address = "Ramanagara, Bengaluru South, Karnataka, India, 562109",
+            locality = "Bengaluru South",
+            adminArea = "Karnataka",
+            countryName = "India",
+            countryCode = "IN",
+            temperatureC = 26.2
         )
         val lines = GpsFormat.buildStampLines(fix, TimeZone.getTimeZone("UTC"))
-        // Address, decimal coordinates, altitude+accuracy, timestamp — no DMS line.
-        assertThat(lines).hasSize(4)
-        assertThat(lines[0]).isEqualTo("MG Road, Bengaluru, India")
-        assertThat(lines[1]).isEqualTo("12.978361°, 77.599380°")
-        assertThat(lines[2]).contains("Alt 842 m")
-        assertThat(lines[2]).contains("±5 m")
-        // Ensure the DMS format is not present anywhere in the stamp.
-        assertThat(lines.none { it.contains("\"") }).isTrue()
+        assertThat(lines).hasSize(5)
+        assertThat(lines[0]).isEqualTo("Bengaluru South, Karnataka, India")
+        assertThat(lines[1]).isEqualTo(
+            "Ramanagara, Bengaluru South, Karnataka, India, 562109"
+        )
+        assertThat(lines[2]).isEqualTo("Lat 12.978361 , Long 77.599380")
+        assertThat(lines[3]).isEqualTo("01/01/70 12:00 AM")
+        assertThat(lines[4]).isEqualTo("Note : Capture by GPS Camera")
     }
 
     @Test
     fun buildStampLines_omitsAddressWhenAbsent() {
         val fix = GeoFix(latitude = 1.0, longitude = 2.0, timestampMs = 0L)
         val lines = GpsFormat.buildStampLines(fix, TimeZone.getTimeZone("UTC"))
-        // Decimal coordinates, altitude+accuracy, timestamp.
-        assertThat(lines).hasSize(3)
-        assertThat(lines[0]).isEqualTo("1.000000°, 2.000000°")
+        assertThat(lines).hasSize(4)
+        assertThat(lines[0]).isEqualTo("Location unavailable")
+        assertThat(lines[1]).isEqualTo("Lat 1.000000 , Long 2.000000")
     }
 
     @Test
     fun formatTimestamp_isDeterministicForGivenZone() {
-        // 2026-07-04T17:00:42Z rendered in IST (+05:30) -> 04 Jul 2026, 10:30:42 PM.
+        // 2026-07-04T17:00:42Z rendered in IST (+05:30).
         val text = GpsFormat.formatTimestamp(
             1_783_184_442_000L, TimeZone.getTimeZone("GMT+05:30")
         )
-        assertThat(text).matches(
-            "\\d{2} \\w{3} \\d{4}, \\d{2}:\\d{2}:\\d{2} (AM|PM) GMT\\+05:30"
-        )
-        assertThat(text).endsWith("GMT+05:30")
+        assertThat(text).isEqualTo("07/04/26 10:30 PM")
+    }
+
+    @Test
+    fun formatTemperature_roundsAndHandlesMissingValue() {
+        assertThat(GpsFormat.formatTemperature(26.4)).isEqualTo("26°C")
+        assertThat(GpsFormat.formatTemperature(26.6)).isEqualTo("27°C")
+        assertThat(GpsFormat.formatTemperature(null)).isEqualTo("--°C")
     }
 }

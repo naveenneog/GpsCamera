@@ -8,6 +8,7 @@ import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Build
 import android.os.Looper
+import com.gpscamera.model.GeocodedAddress
 import com.gpscamera.model.GeoFix
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
@@ -111,31 +112,66 @@ class LocationRepository(context: Context) {
     }
 
     /** Best-effort reverse geocode. Returns null when no backend/network is available. */
-    suspend fun reverseGeocode(latitude: Double, longitude: Double): String? = try {
+    suspend fun reverseGeocode(latitude: Double, longitude: Double): GeocodedAddress? = try {
         if (!Geocoder.isPresent()) null
         else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             suspendCancellableCoroutine { cont ->
                 Geocoder(appContext, Locale.getDefault())
-                    .getFromLocation(latitude, longitude, 1) { results ->
-                        cont.resume(results.firstOrNull()?.let(::formatAddress))
-                    }
+                    .getFromLocation(
+                        latitude,
+                        longitude,
+                        1,
+                        object : Geocoder.GeocodeListener {
+                            override fun onGeocode(addresses: MutableList<android.location.Address>) {
+                                if (cont.isActive) {
+                                    cont.resume(addresses.firstOrNull()?.let(::toGeocodedAddress))
+                                }
+                            }
+
+                            override fun onError(errorMessage: String?) {
+                                if (cont.isActive) cont.resume(null)
+                            }
+                        }
+                    )
             }
         } else {
             withContext(Dispatchers.IO) {
                 @Suppress("DEPRECATION")
                 Geocoder(appContext, Locale.getDefault())
                     .getFromLocation(latitude, longitude, 1)
-                    ?.firstOrNull()?.let(::formatAddress)
+                    ?.firstOrNull()?.let(::toGeocodedAddress)
             }
         }
     } catch (t: Throwable) {
         null
     }
 
-    private fun formatAddress(a: android.location.Address): String {
-        val parts = (0..a.maxAddressLineIndex).map { a.getAddressLine(it) }
-        return if (parts.isNotEmpty()) parts.joinToString(", ")
-        else listOfNotNull(a.locality, a.adminArea, a.countryName).joinToString(", ")
+    private fun toGeocodedAddress(a: android.location.Address): GeocodedAddress {
+        val addressLines = (0..a.maxAddressLineIndex)
+            .mapNotNull { a.getAddressLine(it)?.trim()?.takeIf(String::isNotBlank) }
+        val fallbackParts = listOfNotNull(
+            a.featureName,
+            a.subLocality,
+            a.locality,
+            a.subAdminArea,
+            a.adminArea,
+            a.countryName,
+            a.postalCode
+        ).distinct()
+        var fullAddress = (addressLines.ifEmpty { fallbackParts }).joinToString(", ")
+        a.postalCode?.takeIf { it.isNotBlank() && !fullAddress.contains(it) }?.let {
+            fullAddress = "$fullAddress, $it"
+        }
+        val locality = listOf(a.subLocality, a.locality, a.subAdminArea, a.featureName)
+            .firstOrNull { !it.isNullOrBlank() }
+        return GeocodedAddress(
+            fullAddress = fullAddress,
+            locality = locality,
+            adminArea = a.adminArea,
+            countryName = a.countryName,
+            countryCode = a.countryCode,
+            postalCode = a.postalCode
+        )
     }
 }
 

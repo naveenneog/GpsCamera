@@ -1,5 +1,23 @@
 # Changelog
 
+## v1.1.1 — 2026-07-14
+
+Reliability + design release. Redesigns the burned-in stamp to a clean "map-on-the-left" card and makes the mini-map embed reliably on real devices.
+
+### Fixed
+- **Mini-map now always embeds on captured photos.** Map tiles are fetched in parallel with retries/backoff, an identifying User-Agent (per the OSM tile usage policy), a 7-day on-disk tile cache with revalidation, and a prefetch so the map is ready at the shutter — even on flaky mobile networks.
+
+### Changed
+- **Redesigned geotag stamp** to match the popular "GPS Map Camera" style, in both portrait and landscape:
+  - Square **map thumbnail on the left** with a "Maps" tag and OpenStreetMap attribution.
+  - **Bold locality line** (e.g. *Bengaluru South, Karnataka, India*) above the full wrapped address.
+  - Coordinates shown as **`Lat 12.978361 , Long 77.599380`**.
+  - Date/time as **`MM/DD/YY hh:mm AM/PM`** and a **`Note : Capture by GPS Camera`** line.
+  - Small **app-logo, country-flag and live-temperature** chips in the corner.
+
+### Added
+- **Live temperature** on the stamp via the keyless [Open-Meteo](https://open-meteo.com/) API (best-effort, cached, never blocks capture).
+
 ## v1.1.0 — 2026-07-05
 
 Feature + fix release based on real-device feedback.

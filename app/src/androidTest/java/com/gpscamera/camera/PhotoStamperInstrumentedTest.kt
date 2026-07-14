@@ -4,11 +4,21 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.google.common.truth.Truth.assertThat
+import com.gpscamera.util.GpsFormat
 import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class PhotoStamperInstrumentedTest {
+
+    private val referenceDetails = GpsFormat.StampDetails(
+        localityLine = "Bengaluru South, Karnataka, India",
+        fullAddress = "Ramanagara, Bengaluru South, Karnataka, India, 562109",
+        coordinateLine = "Lat 12.854907 , Long 77.353252",
+        dateTimeLine = "07/14/26 10:04 AM",
+        countryCode = "IN",
+        temperatureC = 26.0
+    )
 
     @Test
     fun stamp_preservesDimensionsAndDrawsPanel() {
@@ -47,5 +57,35 @@ class PhotoStamperInstrumentedTest {
         // Now the top region is covered by the panel and the bottom is clean.
         assertThat(out.getPixel(300, 60)).isNotEqualTo(fill)
         assertThat(out.getPixel(300, 780)).isEqualTo(fill)
+    }
+
+    @Test
+    fun stamp_portraitPlacesMapOnLeft() {
+        val base = Bitmap.createBitmap(900, 1400, Bitmap.Config.ARGB_8888).apply {
+            eraseColor(Color.rgb(10, 120, 90))
+        }
+        val mapColor = Color.rgb(190, 40, 170)
+        val map = Bitmap.createBitmap(220, 220, Bitmap.Config.ARGB_8888).apply {
+            eraseColor(mapColor)
+        }
+
+        val out = PhotoStamper.stamp(base, referenceDetails, mapBitmap = map)
+
+        assertThat(out.getPixel(160, 1270)).isEqualTo(mapColor)
+    }
+
+    @Test
+    fun stamp_landscapePlacesMapOnLeft() {
+        val base = Bitmap.createBitmap(1400, 900, Bitmap.Config.ARGB_8888).apply {
+            eraseColor(Color.rgb(10, 120, 90))
+        }
+        val mapColor = Color.rgb(190, 40, 170)
+        val map = Bitmap.createBitmap(220, 220, Bitmap.Config.ARGB_8888).apply {
+            eraseColor(mapColor)
+        }
+
+        val out = PhotoStamper.stamp(base, referenceDetails, mapBitmap = map)
+
+        assertThat(out.getPixel(435, 770)).isEqualTo(mapColor)
     }
 }

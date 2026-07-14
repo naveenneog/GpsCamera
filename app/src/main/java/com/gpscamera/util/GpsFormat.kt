@@ -15,6 +15,15 @@ import kotlin.math.roundToLong
 object GpsFormat {
 
     data class Dms(val degrees: Int, val minutes: Int, val seconds: Double)
+    data class StampDetails(
+        val localityLine: String,
+        val fullAddress: String?,
+        val coordinateLine: String,
+        val dateTimeLine: String,
+        val noteLine: String = NOTE_LINE,
+        val countryCode: String?,
+        val temperatureC: Double?
+    )
 
     /** EXIF latitude reference: "N" for the northern hemisphere, "S" otherwise. */
     fun latitudeRef(latitude: Double): String = if (latitude >= 0) "N" else "S"
@@ -53,9 +62,9 @@ object GpsFormat {
         return "${dms.degrees}/1,${dms.minutes}/1,$secondsThousandths/1000"
     }
 
-    /** "12.978361°, 77.599380°" — the compact decimal pair shown on the stamp. */
+    /** "Lat 12.978361 , Long 77.599380" — the reference-style coordinate row. */
     fun formatDecimalPair(latitude: Double, longitude: Double): String =
-        String.format(Locale.US, "%.6f°, %.6f°", latitude, longitude)
+        String.format(Locale.US, "Lat %.6f , Long %.6f", latitude, longitude)
 
     fun formatAltitude(altitude: Double?): String =
         if (altitude == null) "Alt --" else String.format(Locale.US, "Alt %.0f m", altitude)
@@ -63,29 +72,56 @@ object GpsFormat {
     fun formatAccuracy(accuracyM: Float?): String =
         if (accuracyM == null) "" else String.format(Locale.US, "±%.0f m", accuracyM)
 
-    /** Timestamp formatted with the device time zone, e.g. "04 Jul 2026, 10:32:07 PM GMT+05:30". */
+    /** Timestamp formatted like the reference stamp, e.g. "07/14/26 10:04 AM". */
     fun formatTimestamp(timestampMs: Long, timeZone: TimeZone = TimeZone.getDefault()): String {
-        val fmt = SimpleDateFormat("dd MMM yyyy, hh:mm:ss a 'GMT'XXX", Locale.US)
+        val fmt = SimpleDateFormat("MM/dd/yy hh:mm a", Locale.US)
         fmt.timeZone = timeZone
         return fmt.format(Date(timestampMs))
     }
 
+    fun formatTemperature(temperatureC: Double?): String =
+        temperatureC?.let { String.format(Locale.US, "%.0f°C", it) } ?: "--°C"
+
+    fun localityLine(fix: GeoFix): String {
+        val components = listOf(fix.locality, fix.adminArea, fix.countryName)
+            .mapNotNull { it?.trim()?.takeIf(String::isNotBlank) }
+            .distinct()
+        return components.joinToString(", ").ifBlank {
+            fix.address?.substringBefore(",")?.trim().takeUnless { it.isNullOrBlank() }
+                ?: "Location unavailable"
+        }
+    }
+
+    fun buildStampDetails(
+        fix: GeoFix,
+        timeZone: TimeZone = TimeZone.getDefault()
+    ): StampDetails = StampDetails(
+        localityLine = localityLine(fix),
+        fullAddress = fix.address?.trim()?.takeIf(String::isNotBlank),
+        coordinateLine = formatDecimalPair(fix.latitude, fix.longitude),
+        dateTimeLine = formatTimestamp(fix.timestampMs, timeZone),
+        countryCode = fix.countryCode,
+        temperatureC = fix.temperatureC
+    )
+
     /**
      * The multi-line text block burned onto each photo. Order (top→bottom):
-     *   1. Address (reverse-geocoded; omitted only when unavailable)
-     *   2. Lat/Long in decimal degrees
-     *   3. Altitude + accuracy
+     *   1. Locality/admin area/country
+     *   2. Full address (when available)
+     *   3. Lat/Long in decimal degrees
      *   4. Timestamp
+     *   5. Capture note
      */
-    fun buildStampLines(fix: GeoFix, timeZone: TimeZone = TimeZone.getDefault()): List<String> {
-        val lines = mutableListOf<String>()
-        fix.address?.takeIf { it.isNotBlank() }?.let { lines.add(it) }
-        lines.add(formatDecimalPair(fix.latitude, fix.longitude))
-        val altAcc = listOf(formatAltitude(fix.altitude), formatAccuracy(fix.accuracyM))
-            .filter { it.isNotBlank() }
-            .joinToString("   ")
-        lines.add(altAcc)
-        lines.add(formatTimestamp(fix.timestampMs, timeZone))
-        return lines
-    }
+    fun buildStampLines(fix: GeoFix, timeZone: TimeZone = TimeZone.getDefault()): List<String> =
+        buildStampDetails(fix, timeZone).let { details ->
+            buildList {
+                add(details.localityLine)
+                details.fullAddress?.let(::add)
+                add(details.coordinateLine)
+                add(details.dateTimeLine)
+                add(details.noteLine)
+            }
+        }
+
+    const val NOTE_LINE = "Note : Capture by GPS Camera"
 }

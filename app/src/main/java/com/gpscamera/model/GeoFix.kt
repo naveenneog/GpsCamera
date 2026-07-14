@@ -12,5 +12,11 @@ data class GeoFix(
     val bearingDeg: Float? = null,
     val speedMps: Float? = null,
     val timestampMs: Long = System.currentTimeMillis(),
-    val address: String? = null
+    val address: String? = null,
+    val locality: String? = null,
+    val adminArea: String? = null,
+    val countryName: String? = null,
+    val countryCode: String? = null,
+    val postalCode: String? = null,
+    val temperatureC: Double? = null
 )

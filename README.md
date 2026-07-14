@@ -15,8 +15,9 @@ A fast, native **Android GPS camera** that burns your **exact location onto ever
 
 ## ✨ Features
 
-- **📸 Geotagged capture** — every photo is stamped with the reverse-geocoded address, decimal coordinates, altitude, accuracy and a timestamp.
-- **🗺️ Live mini-map** — a real OpenStreetMap thumbnail of your spot is drawn onto the photo and shown live on the viewfinder.
+- **📸 Geotagged capture** — a clean *map-on-the-left* card stamps every photo with the locality, full reverse-geocoded address, `Lat / Long`, altitude, timestamp and the live temperature.
+- **🗺️ Live mini-map** — a real OpenStreetMap thumbnail of your spot is drawn onto the photo and shown live on the viewfinder. Tiles are cached and retried so the map embeds reliably even on flaky mobile networks.
+- **🌡️ Live temperature** — the current temperature at your location (via the keyless [Open-Meteo](https://open-meteo.com/) API) is shown on the stamp beside a country flag and the app logo.
 - **👆 Tap to open in Maps** — the map thumbnail and the map button open the exact coordinates in Google Maps.
 - **🎥 Photo & video** — switch modes and record video (saved to `Movies/GPSCamera`); pinch the preview to **zoom**.
 - **🖼️ Full-screen gallery** — tap any shot to open it, swipe between photos, pinch-zoom, then **Open in Maps** (from EXIF) or **Share**.
@@ -34,9 +35,11 @@ A fast, native **Android GPS camera** that burns your **exact location onto ever
 |---|---|---|
 | ![Viewfinder](docs/img/hero.png) | ![Viewer](docs/img/shot-viewer.png) | ![Landscape](docs/img/shot-landscape.png) |
 
-A saved capture — one coordinate format, the address, altitude and a burned-in map:
+A saved capture — the redesigned card with a burned-in map, locality, full address, `Lat / Long`, timestamp and live temperature (portrait &amp; landscape):
 
-![Sample capture](docs/img/sample-capture.jpg)
+| Portrait | Landscape |
+|---|---|
+| ![Portrait stamp](docs/img/stamp-portrait.jpg) | ![Landscape stamp](docs/img/stamp-landscape.jpg) |
 
 ## 🏗️ Tech stack
 
@@ -46,7 +49,8 @@ A saved capture — one coordinate format, the address, altitude and a burned-in
 | Camera | CameraX (`camera-core`, `camera2`, `lifecycle`, `video`, `view`) |
 | Location | `FusedLocationProviderClient` + platform `LocationManager` |
 | Metadata | AndroidX `ExifInterface` |
-| Maps | OpenStreetMap raster tiles (no API key) |
+| Maps | OpenStreetMap raster tiles (no API key) · on-disk tile cache |
+| Weather | Open-Meteo current temperature (no API key) |
 | Min / target SDK | 26 / 35 |
 
 ## 🚀 Build

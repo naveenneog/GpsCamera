@@ -18,6 +18,7 @@ import androidx.camera.video.Recorder
 import androidx.camera.video.VideoCapture
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -72,6 +73,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -268,10 +270,18 @@ private fun DraggableStampBlock(
     Box(modifier = Modifier.fillMaxSize().onSizeChanged { containerSize = it }) {
         val cw = containerSize.width.coerceAtLeast(1)
         val ch = containerSize.height.coerceAtLeast(1)
-        val offX = (stamp.anchorX * cw - blockSize.width / 2f)
-            .coerceIn(0f, (cw - blockSize.width).coerceAtLeast(0).toFloat())
-        val offY = (stamp.anchorY * ch - blockSize.height / 2f)
-            .coerceIn(0f, (ch - blockSize.height).coerceAtLeast(0).toFloat())
+        val offX = scaledBlockOffset(
+            desired = stamp.anchorX * cw - blockSize.width / 2f,
+            unscaledSize = blockSize.width.toFloat(),
+            scale = stamp.scale,
+            containerSize = cw.toFloat()
+        )
+        val offY = scaledBlockOffset(
+            desired = stamp.anchorY * ch - blockSize.height / 2f,
+            unscaledSize = blockSize.height.toFloat(),
+            scale = stamp.scale,
+            containerSize = ch.toFloat()
+        )
 
         Box(
             modifier = Modifier
@@ -289,6 +299,18 @@ private fun DraggableStampBlock(
             GpsOverlayCard(fix = fix, mapBitmap = mapBitmap, onOpenMap = onOpenMap)
         }
     }
+}
+
+private fun scaledBlockOffset(
+    desired: Float,
+    unscaledSize: Float,
+    scale: Float,
+    containerSize: Float
+): Float {
+    val scaledSize = unscaledSize * scale
+    if (scaledSize >= containerSize) return (containerSize - unscaledSize) / 2f
+    val extra = (scaledSize - unscaledSize) / 2f
+    return desired.coerceIn(extra, containerSize - unscaledSize - extra)
 }
 
 private fun openInMaps(context: Context, fix: GeoFix) {
@@ -380,44 +402,127 @@ private fun ModePill(label: String, icon: androidx.compose.ui.graphics.vector.Im
 
 @Composable
 private fun GpsOverlayCard(fix: GeoFix?, mapBitmap: android.graphics.Bitmap?, onOpenMap: () -> Unit) {
-    M3Surface(shape = RoundedCornerShape(16.dp), color = Color(0xC0000000)) {
-        Row(modifier = Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Filled.DragIndicator, "Drag handle", tint = Color(0x99FFFFFF), modifier = Modifier.size(18.dp))
-            Spacer(Modifier.size(6.dp))
+    val configuration = LocalConfiguration.current
+    val details = fix?.let(GpsFormat::buildStampDetails)
+    val textWidth = if (configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) 350.dp else 250.dp
+    M3Surface(shape = RoundedCornerShape(14.dp), color = Color(0xAD1E2022)) {
+        Row(modifier = Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(
-                Modifier.width(4.dp).height(if (fix?.address != null) 96.dp else 78.dp)
-                    .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(2.dp))
-            )
-            Spacer(Modifier.size(12.dp))
-            Column {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(9.dp).background(Color(0xFFFFB300), CircleShape))
-                    Spacer(Modifier.size(8.dp))
-                    Text("GPS Camera", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                }
-                Spacer(Modifier.size(6.dp))
-                if (fix == null) {
-                    Text("Acquiring GPS fix…", color = Color(0xFFB0B8C0), fontSize = 13.sp)
-                } else {
-                    for (line in GpsFormat.buildStampLines(fix)) {
-                        Text(line, color = Color.White, fontSize = 13.sp, fontFamily = FontFamily.Monospace)
-                    }
-                }
-            }
-            if (mapBitmap != null) {
-                Spacer(Modifier.size(12.dp))
-                Box(Modifier.size(84.dp).clip(RoundedCornerShape(10.dp)).clickable { onOpenMap() }) {
+                Modifier.size(96.dp).clip(RoundedCornerShape(10.dp))
+                    .clickable(enabled = mapBitmap != null) { onOpenMap() }
+            ) {
+                if (mapBitmap != null) {
                     Image(
                         bitmap = mapBitmap.asImageBitmap(),
                         contentDescription = "Open location in Maps",
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize()
                     )
-                    M3Surface(color = Color(0xAA00BFA5), shape = RoundedCornerShape(topStart = 8.dp), modifier = Modifier.align(Alignment.BottomEnd)) {
-                        Icon(Icons.Filled.Map, null, tint = Color.Black, modifier = Modifier.size(16.dp).padding(1.dp))
+                } else {
+                    Box(Modifier.fillMaxSize().background(Color(0xFFE8E5DD)))
+                }
+                M3Surface(
+                    color = Color(0xEFFFFFFF),
+                    shape = RoundedCornerShape(6.dp),
+                    modifier = Modifier.align(Alignment.BottomStart).padding(5.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                    ) {
+                        Icon(Icons.Filled.LocationOn, null, tint = Color(0xFF2E70DC), modifier = Modifier.size(12.dp))
+                        Text("Maps", color = Color(0xFF303030), fontSize = 10.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
+            Spacer(Modifier.size(9.dp))
+            Column(Modifier.width(textWidth)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        details?.localityLine ?: "Acquiring GPS fix…",
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(Modifier.size(4.dp))
+                    Box(
+                        Modifier.size(19.dp).clip(RoundedCornerShape(5.dp))
+                            .background(Color(0xFF009688)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Filled.PhotoCamera, null, tint = Color.White, modifier = Modifier.size(13.dp))
+                    }
+                    Spacer(Modifier.size(4.dp))
+                    CountryFlag(details?.countryCode)
+                    Spacer(Modifier.size(4.dp))
+                    M3Surface(color = Color(0x99464A4E), shape = RoundedCornerShape(50)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                        ) {
+                            Icon(Icons.Filled.LightMode, null, tint = Color(0xFFFFC107), modifier = Modifier.size(12.dp))
+                            Spacer(Modifier.size(2.dp))
+                            Text(
+                                GpsFormat.formatTemperature(details?.temperatureC),
+                                color = Color.White,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.size(3.dp))
+                details?.fullAddress?.let {
+                    Text(
+                        it,
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        lineHeight = 13.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Text(
+                    details?.coordinateLine ?: "GPS fix unavailable",
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(details?.dateTimeLine.orEmpty(), color = Color.White, fontSize = 11.sp)
+                Text(
+                    details?.noteLine ?: GpsFormat.NOTE_LINE,
+                    color = Color(0xFFEEEEEE),
+                    fontSize = 10.sp,
+                    maxLines = 1
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CountryFlag(countryCode: String?) {
+    Canvas(Modifier.width(25.dp).height(16.dp).clip(RoundedCornerShape(2.dp))) {
+        if (countryCode.equals("IN", ignoreCase = true)) {
+            val stripe = size.height / 3f
+            drawRect(Color(0xFFFF9933), size = androidx.compose.ui.geometry.Size(size.width, stripe))
+            drawRect(
+                Color.White,
+                topLeft = androidx.compose.ui.geometry.Offset(0f, stripe),
+                size = androidx.compose.ui.geometry.Size(size.width, stripe)
+            )
+            drawRect(
+                Color(0xFF138808),
+                topLeft = androidx.compose.ui.geometry.Offset(0f, stripe * 2f),
+                size = androidx.compose.ui.geometry.Size(size.width, stripe)
+            )
+            drawCircle(Color(0xFF000080), radius = 2.dp.toPx(), center = center, style = androidx.compose.ui.graphics.drawscope.Stroke(1.dp.toPx()))
+        } else {
+            drawRect(Color(0xFF4B525A))
         }
     }
 }

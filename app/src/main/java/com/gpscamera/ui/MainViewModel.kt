@@ -27,10 +27,14 @@ import com.gpscamera.camera.PhotoStamper
 import com.gpscamera.camera.toUprightBitmap
 import com.gpscamera.location.LocationRepository
 import com.gpscamera.map.StaticMapProvider
+import com.gpscamera.model.GeocodedAddress
 import com.gpscamera.model.GeoFix
 import com.gpscamera.util.GpsFormat
+import com.gpscamera.util.SlippyMap
+import com.gpscamera.weather.WeatherProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -48,7 +52,7 @@ import kotlin.coroutines.resume
 /** Position (0..1 of image) and size of the burned-in GPS block, controlled by the user. */
 data class StampTransform(
     val anchorX: Float = 0.5f,
-    val anchorY: Float = 0.68f,
+    val anchorY: Float = 0.86f,
     val scale: Float = 1f
 )
 
@@ -59,7 +63,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val locationRepo = LocationRepository(app)
     private val photoSaver = PhotoSaver(app)
     private val galleryRepo = GalleryRepository(app)
-    private val mapProvider = StaticMapProvider()
+    private val mapProvider = StaticMapProvider(app)
+    private val weatherProvider = WeatherProvider()
 
     private val _fix = MutableStateFlow<GeoFix?>(null)
     val fix: StateFlow<GeoFix?> = _fix.asStateFlow()
@@ -96,7 +101,26 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val recordSeconds: StateFlow<Int> = _recordSeconds.asStateFlow()
 
     private var locationJob: Job? = null
-    private var lastMapKey: String? = null
+    private var mapBitmapKey: String? = null
+    private var requestedMapKey: String? = null
+    private var mapLatitude: Double? = null
+    private var mapLongitude: Double? = null
+    private var mapFetchJob: Job? = null
+    private var weatherFetchJob: Job? = null
+    private var weatherKey: String? = null
+    private var weatherUpdatedAtMs: Long = 0L
+    private var weatherAttemptKey: String? = null
+    private var weatherAttemptedAtMs: Long = 0L
+    private var weatherLatitude: Double? = null
+    private var weatherLongitude: Double? = null
+    private var temperatureC: Double? = null
+    private var geocodeFetchJob: Job? = null
+    private var geocodeKey: String? = null
+    private var geocodeAttemptKey: String? = null
+    private var geocodeAttemptedAtMs: Long = 0L
+    private var geocodeLatitude: Double? = null
+    private var geocodeLongitude: Double? = null
+    private var geocodedAddress: GeocodedAddress? = null
     private var activeRecording: Recording? = null
     private var recordTimerJob: Job? = null
 
@@ -110,29 +134,168 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (locationJob?.isActive == true) return
         locationJob = viewModelScope.launch {
             locationRepo.locationUpdates().collect { fix ->
-                _fix.value = fix
+                _fix.value = applyCachedMetadata(fix)
+                maybeUpdateGeocode(fix)
+                maybeUpdateWeather(fix)
                 maybeUpdateMap(fix)
             }
         }
     }
 
+    private fun maybeUpdateGeocode(fix: GeoFix) {
+        val key = geocodeKey(fix)
+        val now = System.currentTimeMillis()
+        if (key == geocodeKey && geocodedAddress != null) return
+        if (geocodeFetchJob?.isActive == true) {
+            if (key == geocodeAttemptKey) return
+            geocodeFetchJob?.cancel()
+        }
+        if (key == geocodeAttemptKey && now - geocodeAttemptedAtMs < GEOCODE_RETRY_MS) return
+
+        geocodeAttemptKey = key
+        geocodeAttemptedAtMs = now
+        geocodeFetchJob = viewModelScope.launch {
+            val fetched = locationRepo.reverseGeocode(fix.latitude, fix.longitude)
+            if (fetched != null) {
+                geocodeKey = key
+                geocodeLatitude = fix.latitude
+                geocodeLongitude = fix.longitude
+                geocodedAddress = fetched
+                _fix.value?.let { current ->
+                    if (nearbyGeocodedAddress(current) != null) {
+                        _fix.value = applyGeocodedAddress(current, fetched)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun maybeUpdateWeather(fix: GeoFix) {
+        val key = weatherKey(fix)
+        val now = System.currentTimeMillis()
+        if (key == weatherKey && now - weatherUpdatedAtMs < WEATHER_REFRESH_MS) return
+        if (weatherFetchJob?.isActive == true) {
+            if (key == weatherAttemptKey) return
+            weatherFetchJob?.cancel()
+        }
+        if (key == weatherAttemptKey && now - weatherAttemptedAtMs < WEATHER_RETRY_MS) return
+
+        weatherAttemptKey = key
+        weatherAttemptedAtMs = now
+        weatherFetchJob = viewModelScope.launch {
+            val fetched = weatherProvider.fetchTemperatureC(fix.latitude, fix.longitude)
+            if (fetched != null) {
+                weatherUpdatedAtMs = System.currentTimeMillis()
+                weatherKey = key
+                weatherLatitude = fix.latitude
+                weatherLongitude = fix.longitude
+                temperatureC = fetched
+                _fix.value?.let { current ->
+                    if (SlippyMap.distanceMeters(
+                            fix.latitude,
+                            fix.longitude,
+                            current.latitude,
+                            current.longitude
+                        ) <= MAX_WEATHER_DISTANCE_M
+                    ) {
+                        _fix.value = current.copy(temperatureC = fetched)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun nearbyTemperature(fix: GeoFix): Double? {
+        val latitude = weatherLatitude ?: return null
+        val longitude = weatherLongitude ?: return null
+        if (System.currentTimeMillis() - weatherUpdatedAtMs > WEATHER_MAX_AGE_MS) return null
+        return temperatureC?.takeIf {
+            SlippyMap.distanceMeters(latitude, longitude, fix.latitude, fix.longitude) <=
+                MAX_WEATHER_DISTANCE_M
+        }
+    }
+
+    private fun applyCachedMetadata(fix: GeoFix): GeoFix {
+        val withAddress = nearbyGeocodedAddress(fix)?.let { applyGeocodedAddress(fix, it) } ?: fix
+        return withAddress.copy(temperatureC = nearbyTemperature(fix))
+    }
+
+    private fun nearbyGeocodedAddress(
+        fix: GeoFix,
+        maxDistanceM: Double = MAX_GEOCODE_DISTANCE_M
+    ): GeocodedAddress? {
+        val latitude = geocodeLatitude ?: return null
+        val longitude = geocodeLongitude ?: return null
+        return geocodedAddress?.takeIf {
+            SlippyMap.distanceMeters(latitude, longitude, fix.latitude, fix.longitude) <=
+                maxDistanceM
+        }
+    }
+
+    private fun applyGeocodedAddress(fix: GeoFix, geocoded: GeocodedAddress): GeoFix = fix.copy(
+        address = geocoded.fullAddress,
+        locality = geocoded.locality,
+        adminArea = geocoded.adminArea,
+        countryName = geocoded.countryName,
+        countryCode = geocoded.countryCode,
+        postalCode = geocoded.postalCode
+    )
+
     private suspend fun maybeUpdateMap(fix: GeoFix) {
-        val key = String.format(Locale.US, "%.4f,%.4f", fix.latitude, fix.longitude)
-        if (key == lastMapKey) return
-        lastMapKey = key
-        mapProvider.fetch(fix.latitude, fix.longitude)?.let { _mapBitmap.value = it }
+        val key = mapKey(fix)
+        if (key == mapBitmapKey && _mapBitmap.value != null) return
+        if (key == requestedMapKey && mapFetchJob?.isActive == true) return
+
+        mapFetchJob?.cancelAndJoin()
+        requestedMapKey = key
+        mapFetchJob = viewModelScope.launch {
+            val fetched = mapProvider.fetch(fix.latitude, fix.longitude)
+            if (requestedMapKey != key) return@launch
+            requestedMapKey = null
+            if (fetched != null) {
+                rememberMap(fix, key, fetched)
+            }
+        }
     }
 
     /** Map thumbnail for a capture: reuse the cached one if it matches, else fetch now. */
     private suspend fun mapForCapture(fix: GeoFix): Bitmap? {
-        val key = String.format(Locale.US, "%.4f,%.4f", fix.latitude, fix.longitude)
-        if (key == lastMapKey && _mapBitmap.value != null) return _mapBitmap.value
-        val fetched = withTimeoutOrNull(6000L) { mapProvider.fetch(fix.latitude, fix.longitude) }
-        if (fetched != null) {
-            _mapBitmap.value = fetched
-            lastMapKey = key
+        val key = mapKey(fix)
+        if (key == mapBitmapKey && _mapBitmap.value != null) return _mapBitmap.value
+
+        if (key == requestedMapKey) {
+            val pending = mapFetchJob
+            withTimeoutOrNull(PREFETCH_WAIT_MS) { pending?.join() }
+            if (key == mapBitmapKey && _mapBitmap.value != null) return _mapBitmap.value
+            if (pending?.isActive == true) {
+                pending.cancelAndJoin()
+                if (requestedMapKey == key) requestedMapKey = null
+            }
         }
-        return fetched ?: _mapBitmap.value
+
+        val fetched = withTimeoutOrNull(CAPTURE_MAP_TIMEOUT_MS) {
+            mapProvider.fetch(fix.latitude, fix.longitude)
+        }
+        if (fetched != null) {
+            rememberMap(fix, key, fetched)
+        }
+        return fetched ?: nearbyCachedMap(fix)
+    }
+
+    private fun rememberMap(fix: GeoFix, key: String, bitmap: Bitmap) {
+        _mapBitmap.value = bitmap
+        mapBitmapKey = key
+        mapLatitude = fix.latitude
+        mapLongitude = fix.longitude
+    }
+
+    private fun nearbyCachedMap(fix: GeoFix): Bitmap? {
+        val latitude = mapLatitude ?: return null
+        val longitude = mapLongitude ?: return null
+        return _mapBitmap.value?.takeIf {
+            SlippyMap.distanceMeters(latitude, longitude, fix.latitude, fix.longitude) <=
+                MAX_STALE_MAP_DISTANCE_M
+        }
     }
 
     fun refreshGallery() {
@@ -239,6 +402,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         super.onCleared()
         activeRecording?.stop()
         recordTimerJob?.cancel()
+        mapFetchJob?.cancel()
+        weatherFetchJob?.cancel()
+        geocodeFetchJob?.cancel()
     }
 
     /**
@@ -292,11 +458,24 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
         val baseFix = locationRepo.currentFix() ?: _fix.value
         val enriched = baseFix?.let { f ->
-            val address = locationRepo.reverseGeocode(f.latitude, f.longitude)
-            f.copy(address = address, timestampMs = System.currentTimeMillis())
+            val geocoded = nearbyGeocodedAddress(f, CAPTURE_GEOCODE_DISTANCE_M)
+                ?: locationRepo.reverseGeocode(f.latitude, f.longitude)
+                ?: nearbyGeocodedAddress(f)
+            val addressed = geocoded?.let { applyGeocodedAddress(f, it) } ?: f
+            addressed.copy(
+                temperatureC = nearbyTemperature(f) ?: f.temperatureC,
+                timestampMs = System.currentTimeMillis()
+            )
         }
-        val lines = enriched?.let { GpsFormat.buildStampLines(it) }
-            ?: listOf("GPS Camera", "Location unavailable")
+        val details = enriched?.let { GpsFormat.buildStampDetails(it) }
+            ?: GpsFormat.StampDetails(
+                localityLine = "Location unavailable",
+                fullAddress = null,
+                coordinateLine = "GPS fix unavailable",
+                dateTimeLine = GpsFormat.formatTimestamp(System.currentTimeMillis()),
+                countryCode = null,
+                temperatureC = null
+            )
         val transform = _stamp.value
         // Guarantee the map is on the photo: use the cached one, otherwise fetch it now
         // (best-effort with a timeout) for the exact captured coordinates.
@@ -304,7 +483,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val stamped = withContext(Dispatchers.Default) {
             PhotoStamper.stamp(
                 src = bitmap,
-                lines = lines,
+                details = details,
                 mapBitmap = map,
                 anchorX = transform.anchorX,
                 anchorY = transform.anchorY,
@@ -316,5 +495,27 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         _message.value = if (enriched != null) "Saved with GPS to Pictures/GPSCamera"
         else "Saved (no GPS fix) to Pictures/GPSCamera"
         refreshGallery()
+    }
+
+    private fun mapKey(fix: GeoFix): String =
+        String.format(Locale.US, "%.4f,%.4f", fix.latitude, fix.longitude)
+
+    private fun weatherKey(fix: GeoFix): String =
+        String.format(Locale.US, "%.2f,%.2f", fix.latitude, fix.longitude)
+
+    private fun geocodeKey(fix: GeoFix): String =
+        String.format(Locale.US, "%.3f,%.3f", fix.latitude, fix.longitude)
+
+    companion object {
+        private const val PREFETCH_WAIT_MS = 4_000L
+        private const val CAPTURE_MAP_TIMEOUT_MS = 25_000L
+        private const val MAX_STALE_MAP_DISTANCE_M = 25.0
+        private const val WEATHER_REFRESH_MS = 15L * 60L * 1_000L
+        private const val WEATHER_RETRY_MS = 30_000L
+        private const val WEATHER_MAX_AGE_MS = 30L * 60L * 1_000L
+        private const val MAX_WEATHER_DISTANCE_M = 5_000.0
+        private const val GEOCODE_RETRY_MS = 30_000L
+        private const val MAX_GEOCODE_DISTANCE_M = 500.0
+        private const val CAPTURE_GEOCODE_DISTANCE_M = 25.0
     }
 }

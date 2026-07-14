@@ -34,6 +34,16 @@ class SlippyMapTest {
     }
 
     @Test
+    fun distanceMeters_handlesNearbyAndIdenticalCoordinates() {
+        assertThat(
+            SlippyMap.distanceMeters(12.978361, 77.599380, 12.978361, 77.599380)
+        ).isWithin(1e-6).of(0.0)
+        assertThat(
+            SlippyMap.distanceMeters(12.978361, 77.599380, 12.979261, 77.599380)
+        ).isWithin(2.0).of(100.0)
+    }
+
+    @Test
     fun mapsUrl_isWellFormed() {
         val url = SlippyMap.mapsUrl(12.978361, 77.599380)
         assertThat(url).startsWith("https://www.google.com/maps/search/?api=1&query=")
