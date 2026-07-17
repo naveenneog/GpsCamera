@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.1.2 — 2026-07-17
+
+Video + camera release. Recorded videos are now geotagged and appear in the in-app gallery, and you can switch between the front and back cameras.
+
+### Fixed
+- **Recorded videos are now geotagged.** The current GPS fix is embedded into each MP4's location metadata (ISO-6709), so videos map just like photos.
+- **Videos now show up in the in-app gallery.** The gallery reads both `Pictures/GPSCamera` (photos) and `Movies/GPSCamera` (videos); video cells get a play badge and open in an in-app player, with **Open in Maps** read from the video's embedded location and **Share**.
+
+### Added
+- **Front / back camera switch** — a one-tap lens toggle on the camera screen (both portrait and landscape); disabled mid-recording.
+
 ## v1.1.1 — 2026-07-14
 
 Reliability + design release. Redesigns the burned-in stamp to a clean "map-on-the-left" card and makes the mini-map embed reliably on real devices.

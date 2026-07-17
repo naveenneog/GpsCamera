@@ -1,5 +1,6 @@
 package com.gpscamera.camera
 
+import android.content.ContentUris
 import android.content.ContentValues
 import android.net.Uri
 import android.os.Build
@@ -32,13 +33,15 @@ class GalleryRepositoryInstrumentedTest {
         try {
             val items = GalleryRepository(context).load()
 
-            val photo = items.firstOrNull { it.uri == photoUri }
-            val video = items.firstOrNull { it.uri == videoUri }
+            // Match by media ID: load() builds URIs on the VOLUME_EXTERNAL authority while
+            // the inserts use VOLUME_EXTERNAL_PRIMARY, so compare the row id, not the full URI.
+            val photoId = ContentUris.parseId(photoUri)
+            val videoId = ContentUris.parseId(videoUri)
+            val photo = items.firstOrNull { ContentUris.parseId(it.uri) == photoId && !it.isVideo }
+            val video = items.firstOrNull { ContentUris.parseId(it.uri) == videoId && it.isVideo }
 
             assertThat(photo).isNotNull()
-            assertThat(photo!!.isVideo).isFalse()
             assertThat(video).isNotNull()
-            assertThat(video!!.isVideo).isTrue()
         } finally {
             resolver.delete(photoUri, null, null)
             resolver.delete(videoUri, null, null)
