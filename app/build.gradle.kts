@@ -12,8 +12,8 @@ android {
         applicationId = "com.gpscamera"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "1.1.1"
+        versionCode = 4
+        versionName = "1.1.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
@@ -95,6 +95,8 @@ dependencies {
 
     // Image loading (gallery thumbnails)
     implementation("io.coil-kt:coil-compose:2.7.0")
+    // Video frame thumbnails for recorded clips in the gallery
+    implementation("io.coil-kt:coil-video:2.7.0")
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")

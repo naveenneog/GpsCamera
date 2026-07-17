@@ -40,6 +40,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.Cameraswitch
 import androidx.compose.material.icons.filled.DragIndicator
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.LocationOn
@@ -105,6 +106,7 @@ fun CameraScreen(
     val mode by viewModel.mode.collectAsStateWithLifecycle()
     val isRecording by viewModel.isRecording.collectAsStateWithLifecycle()
     val recordSeconds by viewModel.recordSeconds.collectAsStateWithLifecycle()
+    val useFrontCamera by viewModel.useFrontCamera.collectAsStateWithLifecycle()
 
     val previewView = remember {
         PreviewView(context).apply {
@@ -133,16 +135,21 @@ fun CameraScreen(
         future.addListener({ cameraProvider = future.get() }, ContextCompat.getMainExecutor(context))
     }
 
-    // (Re)bind use cases whenever the provider is ready or the capture mode changes.
-    LaunchedEffect(cameraProvider, mode) {
+    // (Re)bind use cases whenever the provider is ready, the capture mode, or the lens changes.
+    LaunchedEffect(cameraProvider, mode, useFrontCamera) {
         val provider = cameraProvider ?: return@LaunchedEffect
+        val selector = if (useFrontCamera) {
+            CameraSelector.DEFAULT_FRONT_CAMERA
+        } else {
+            CameraSelector.DEFAULT_BACK_CAMERA
+        }
         val preview = Preview.Builder().build().also { it.surfaceProvider = previewView.surfaceProvider }
         provider.unbindAll()
         camera = try {
             if (mode == CaptureMode.PHOTO) {
-                provider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageCapture)
+                provider.bindToLifecycle(lifecycleOwner, selector, preview, imageCapture)
             } else {
-                provider.bindToLifecycle(lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, videoCapture)
+                provider.bindToLifecycle(lifecycleOwner, selector, preview, videoCapture)
             }
         } catch (t: Throwable) {
             null
@@ -228,6 +235,7 @@ fun CameraScreen(
                 if (!isRecording) ModeSwitch(mode) { if (it != mode) viewModel.toggleMode() }
                 ShutterButton(mode, isSaving, isRecording, onShutter)
                 GalleryButton(onClick = onOpenGallery, enabled = !isRecording)
+                SwitchCameraButton(enabled = !isRecording) { zoomRatio = 1f; viewModel.toggleLens() }
             }
         } else {
             Column(
@@ -248,7 +256,7 @@ fun CameraScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Spacer(Modifier.size(56.dp))
+                    SwitchCameraButton(enabled = !isRecording) { zoomRatio = 1f; viewModel.toggleLens() }
                     ShutterButton(mode, isSaving, isRecording, onShutter)
                     GalleryButton(onClick = onOpenGallery, enabled = !isRecording)
                 }
@@ -550,6 +558,15 @@ private fun GalleryButton(onClick: () -> Unit, enabled: Boolean) {
     M3Surface(shape = CircleShape, color = Color(0xCC161B22), modifier = Modifier.size(56.dp), onClick = { if (enabled) onClick() }) {
         Box(contentAlignment = Alignment.Center) {
             Icon(Icons.Filled.PhotoLibrary, "Gallery", tint = if (enabled) Color.White else Color.Gray, modifier = Modifier.size(26.dp))
+        }
+    }
+}
+
+@Composable
+private fun SwitchCameraButton(enabled: Boolean, onClick: () -> Unit) {
+    M3Surface(shape = CircleShape, color = Color(0xCC161B22), modifier = Modifier.size(56.dp), onClick = { if (enabled) onClick() }) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(Icons.Filled.Cameraswitch, "Switch camera", tint = if (enabled) Color.White else Color.Gray, modifier = Modifier.size(26.dp))
         }
     }
 }

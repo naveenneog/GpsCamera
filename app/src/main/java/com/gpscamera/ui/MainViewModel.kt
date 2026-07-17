@@ -7,6 +7,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.location.Location
 import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
@@ -28,6 +29,7 @@ import com.gpscamera.camera.toUprightBitmap
 import com.gpscamera.location.LocationRepository
 import com.gpscamera.map.StaticMapProvider
 import com.gpscamera.model.GeocodedAddress
+import com.gpscamera.model.GalleryItem
 import com.gpscamera.model.GeoFix
 import com.gpscamera.util.GpsFormat
 import com.gpscamera.util.SlippyMap
@@ -81,8 +83,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val _lastSaved = MutableStateFlow<Uri?>(null)
     val lastSaved: StateFlow<Uri?> = _lastSaved.asStateFlow()
 
-    private val _gallery = MutableStateFlow<List<Uri>>(emptyList())
-    val gallery: StateFlow<List<Uri>> = _gallery.asStateFlow()
+    private val _gallery = MutableStateFlow<List<GalleryItem>>(emptyList())
+    val gallery: StateFlow<List<GalleryItem>> = _gallery.asStateFlow()
 
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
@@ -99,6 +101,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _recordSeconds = MutableStateFlow(0)
     val recordSeconds: StateFlow<Int> = _recordSeconds.asStateFlow()
+
+    private val _useFrontCamera = MutableStateFlow(false)
+    val useFrontCamera: StateFlow<Boolean> = _useFrontCamera.asStateFlow()
 
     private var locationJob: Job? = null
     private var mapBitmapKey: String? = null
@@ -127,6 +132,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun toggleMode() {
         if (_isRecording.value) return
         _mode.value = if (_mode.value == CaptureMode.PHOTO) CaptureMode.VIDEO else CaptureMode.PHOTO
+    }
+
+    /** Flip between the back and front lens. Ignored mid-recording. */
+    fun toggleLens() {
+        if (_isRecording.value) return
+        _useFrontCamera.value = !_useFrontCamera.value
     }
 
     /** Begin streaming location updates. Safe to call repeatedly (idempotent). */
@@ -348,6 +359,19 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         val output = MediaStoreOutputOptions
             .Builder(ctx.contentResolver, MediaStore.Video.Media.EXTERNAL_CONTENT_URI)
             .setContentValues(values)
+            .apply {
+                // Embed the current GPS fix into the MP4 metadata so the video is geotagged.
+                _fix.value
+                    ?.takeIf { it.latitude in -90.0..90.0 && it.longitude in -180.0..180.0 }
+                    ?.let { f ->
+                        setLocation(Location("gps").apply {
+                            latitude = f.latitude
+                            longitude = f.longitude
+                            f.altitude?.let { altitude = it }
+                            time = f.timestampMs
+                        })
+                    }
+            }
             .build()
 
         val hasAudio = ContextCompat.checkSelfPermission(

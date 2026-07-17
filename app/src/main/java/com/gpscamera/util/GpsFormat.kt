@@ -82,6 +82,21 @@ object GpsFormat {
     fun formatTemperature(temperatureC: Double?): String =
         temperatureC?.let { String.format(Locale.US, "%.0f°C", it) } ?: "--°C"
 
+    /**
+     * Parse an ISO-6709 location string (how CameraX stores GPS in a recorded MP4,
+     * e.g. "+12.9784+077.5994/" or "+12.9784+077.5994+842.000/") into decimal
+     * latitude/longitude. Returns null when absent or out of range.
+     */
+    fun parseIso6709(value: String?): Pair<Double, Double>? {
+        if (value.isNullOrBlank()) return null
+        val numbers = Regex("[+-]\\d+(?:\\.\\d+)?").findAll(value).map { it.value }.toList()
+        if (numbers.size < 2) return null
+        val lat = numbers[0].toDoubleOrNull() ?: return null
+        val lon = numbers[1].toDoubleOrNull() ?: return null
+        if (lat !in -90.0..90.0 || lon !in -180.0..180.0) return null
+        return lat to lon
+    }
+
     fun localityLine(fix: GeoFix): String {
         val components = listOf(fix.locality, fix.adminArea, fix.countryName)
             .mapNotNull { it?.trim()?.takeIf(String::isNotBlank) }

@@ -42,7 +42,11 @@ fun AppRoot(viewModel: MainViewModel, isDark: Boolean, onToggleTheme: () -> Unit
     // Camera + location are required; microphone (video audio) and photo access
     // (in-app gallery) are requested too but optional.
     val optionalMedia = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        listOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.READ_MEDIA_IMAGES)
+        listOf(
+            Manifest.permission.RECORD_AUDIO,
+            Manifest.permission.READ_MEDIA_IMAGES,
+            Manifest.permission.READ_MEDIA_VIDEO
+        )
     } else {
         listOf(Manifest.permission.RECORD_AUDIO)
     }

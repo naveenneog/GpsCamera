@@ -142,4 +142,29 @@ class GpsFormatTest {
         assertThat(GpsFormat.formatTemperature(26.6)).isEqualTo("27°C")
         assertThat(GpsFormat.formatTemperature(null)).isEqualTo("--°C")
     }
+
+    @Test
+    fun parseIso6709_readsLatLongFromVideoMetadata() {
+        // The forms CameraX / MediaMetadataRetriever emit for a geotagged MP4.
+        GpsFormat.parseIso6709("+12.9784+077.5994/")!!.let { (lat, lon) ->
+            assertThat(lat).isWithin(1e-6).of(12.9784)
+            assertThat(lon).isWithin(1e-6).of(77.5994)
+        }
+        GpsFormat.parseIso6709("+12.9784+077.5994+842.000/")!!.let { (lat, lon) ->
+            assertThat(lat).isWithin(1e-6).of(12.9784)
+            assertThat(lon).isWithin(1e-6).of(77.5994)
+        }
+        GpsFormat.parseIso6709("-33.8688+151.2093/")!!.let { (lat, lon) ->
+            assertThat(lat).isWithin(1e-6).of(-33.8688)
+            assertThat(lon).isWithin(1e-6).of(151.2093)
+        }
+    }
+
+    @Test
+    fun parseIso6709_returnsNullForMissingOrInvalid() {
+        assertThat(GpsFormat.parseIso6709(null)).isNull()
+        assertThat(GpsFormat.parseIso6709("")).isNull()
+        assertThat(GpsFormat.parseIso6709("+12.9784/")).isNull()      // only one coordinate
+        assertThat(GpsFormat.parseIso6709("+95.0000+077.5994/")).isNull() // latitude out of range
+    }
 }
