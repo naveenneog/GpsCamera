@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.1.3 — 2026-07-18
+
+Video stamp release. The GPS map + info panel is now **burned into recorded videos**, not just written to the file's metadata.
+
+### Fixed
+- **Videos now show the GPS stamp on the video itself.** The same map-on-the-left panel that photos get (locality, address, `Lat / Long`, date/time, temperature) is burned into every recorded frame in real time via a CameraX `OverlayEffect`. If a device can't apply the effect, recording still works and the GPS stays in the file metadata.
+
 ## v1.1.2 — 2026-07-17
 
 Video + camera release. Recorded videos are now geotagged and appear in the in-app gallery, and you can switch between the front and back cameras.

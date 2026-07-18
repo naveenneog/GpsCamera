@@ -19,7 +19,7 @@ A fast, native **Android GPS camera** that burns your **exact location onto ever
 - **🗺️ Live mini-map** — a real OpenStreetMap thumbnail of your spot is drawn onto the photo and shown live on the viewfinder. Tiles are cached and retried so the map embeds reliably even on flaky mobile networks.
 - **🌡️ Live temperature** — the current temperature at your location (via the keyless [Open-Meteo](https://open-meteo.com/) API) is shown on the stamp beside a country flag and the app logo.
 - **👆 Tap to open in Maps** — the map thumbnail and the map button open the exact coordinates in Google Maps.
-- **🎥 Photo & video** — switch modes and record **geotagged** video (saved to `Movies/GPSCamera` with GPS embedded in the file); pinch the preview to **zoom**.
+- **🎥 Photo & video** — switch modes and record **geotagged** video with the GPS map + info panel **burned onto the footage** (and GPS embedded in the file); pinch the preview to **zoom**.
 - **🔄 Front & back camera** — one-tap lens switch on the camera screen.
 - **🖼️ Full-screen gallery** — photos **and** videos in one grid; tap any shot to open it, swipe between them, pinch-zoom photos or play videos in-app, then **Open in Maps** or **Share**.
 - **🔁 Portrait & landscape** — the UI rotates and reflows its controls to a side rail in landscape.

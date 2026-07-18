@@ -3,13 +3,19 @@ package com.gpscamera.ui
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
+import android.graphics.PorterDuff
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.view.OrientationEventListener
 import android.view.Surface
 import androidx.camera.core.Camera
+import androidx.camera.core.CameraEffect
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.Preview
+import androidx.camera.core.UseCaseGroup
+import androidx.camera.effects.OverlayEffect
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.video.FallbackStrategy
 import androidx.camera.video.Quality
@@ -81,8 +87,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
+import androidx.core.util.Consumer
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.gpscamera.camera.VideoStampOverlay
 import com.gpscamera.model.GeoFix
 import com.gpscamera.util.GpsFormat
 import com.gpscamera.util.SlippyMap
@@ -125,6 +133,39 @@ fun CameraScreen(
             .build()
         VideoCapture.withOutput(recorder)
     }
+    // Burns the GPS stamp into every recorded video frame (same panel photos get).
+    val videoOverlay = remember { VideoStampOverlay() }
+    val overlayEffect = remember {
+        OverlayEffect(
+            CameraEffect.PREVIEW or CameraEffect.VIDEO_CAPTURE,
+            5,
+            Handler(Looper.getMainLooper()),
+            Consumer<Throwable> { /* overlay failure must never crash capture */ }
+        ).apply {
+            setOnDrawListener { frame ->
+                try {
+                    val canvas = frame.overlayCanvas
+                    canvas.drawColor(android.graphics.Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
+                    videoOverlay.bitmapFor(frame.size.width, frame.size.height)?.let { bmp ->
+                        canvas.drawBitmap(bmp, 0f, 0f, null)
+                    }
+                } catch (t: Throwable) {
+                    // Never let an overlay hiccup break the recording pipeline.
+                }
+                true
+            }
+        }
+    }
+    DisposableEffect(overlayEffect) {
+        onDispose {
+            overlayEffect.close()
+            videoOverlay.clear()
+        }
+    }
+    // Keep the overlay content fresh as the fix / map update.
+    LaunchedEffect(fix, mapBitmap) {
+        videoOverlay.update(fix?.let { GpsFormat.buildStampDetails(it) }, mapBitmap)
+    }
 
     var cameraProvider by remember { mutableStateOf<ProcessCameraProvider?>(null) }
     var camera by remember { mutableStateOf<Camera?>(null) }
@@ -149,7 +190,19 @@ fun CameraScreen(
             if (mode == CaptureMode.PHOTO) {
                 provider.bindToLifecycle(lifecycleOwner, selector, preview, imageCapture)
             } else {
-                provider.bindToLifecycle(lifecycleOwner, selector, preview, videoCapture)
+                try {
+                    val group = UseCaseGroup.Builder()
+                        .addUseCase(preview)
+                        .addUseCase(videoCapture)
+                        .addEffect(overlayEffect)
+                        .build()
+                    provider.bindToLifecycle(lifecycleOwner, selector, group)
+                } catch (effectError: Throwable) {
+                    // If the device can't apply the overlay effect, still record (without the
+                    // burned stamp) rather than breaking video entirely. GPS stays in metadata.
+                    provider.unbindAll()
+                    provider.bindToLifecycle(lifecycleOwner, selector, preview, videoCapture)
+                }
             }
         } catch (t: Throwable) {
             null
@@ -194,7 +247,11 @@ fun CameraScreen(
                 }
         )
 
-        DraggableStampBlock(viewModel, fix, mapBitmap, stamp) { fix?.let { openInMaps(context, it) } }
+        // In photo mode the draggable card is burned in post-capture; in video mode the
+        // OverlayEffect burns the same panel into the frames, so the preview shows that instead.
+        if (mode == CaptureMode.PHOTO) {
+            DraggableStampBlock(viewModel, fix, mapBitmap, stamp) { fix?.let { openInMaps(context, it) } }
+        }
 
         // Top controls (fixed): theme · accuracy/zoom · open-in-maps.
         Row(
