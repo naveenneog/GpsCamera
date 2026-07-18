@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.1.4 — 2026-07-18
+
+Video stamp is now movable. The info block can be **dragged and pinch-resized in video mode** — in both portrait and landscape — and the burned-in overlay follows it.
+
+### Fixed
+- **The info block is draggable & resizable while recording video**, matching photo mode (previously it was fixed, and fixed in landscape). Move or pinch it and the stamp burned into the video updates to match.
+
 ## v1.1.3 — 2026-07-18
 
 Video stamp release. The GPS map + info panel is now **burned into recorded videos**, not just written to the file's metadata.

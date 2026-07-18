@@ -6,7 +6,7 @@ import android.content.res.Configuration
 import android.graphics.PorterDuff
 import android.net.Uri
 import android.os.Handler
-import android.os.Looper
+import android.os.HandlerThread
 import android.view.OrientationEventListener
 import android.view.Surface
 import androidx.camera.core.Camera
@@ -135,11 +135,13 @@ fun CameraScreen(
     }
     // Burns the GPS stamp into every recorded video frame (same panel photos get).
     val videoOverlay = remember { VideoStampOverlay() }
+    // The overlay renders off the main thread so dragging/resizing never janks the UI.
+    val overlayThread = remember { HandlerThread("gps-video-overlay").apply { start() } }
     val overlayEffect = remember {
         OverlayEffect(
             CameraEffect.PREVIEW or CameraEffect.VIDEO_CAPTURE,
             5,
-            Handler(Looper.getMainLooper()),
+            Handler(overlayThread.looper),
             Consumer<Throwable> { /* overlay failure must never crash capture */ }
         ).apply {
             setOnDrawListener { frame ->
@@ -160,11 +162,18 @@ fun CameraScreen(
         onDispose {
             overlayEffect.close()
             videoOverlay.clear()
+            overlayThread.quitSafely()
         }
     }
-    // Keep the overlay content fresh as the fix / map update.
-    LaunchedEffect(fix, mapBitmap) {
-        videoOverlay.update(fix?.let { GpsFormat.buildStampDetails(it) }, mapBitmap)
+    // Keep the overlay content + placement in sync with the on-screen draggable block.
+    LaunchedEffect(fix, mapBitmap, stamp) {
+        videoOverlay.update(
+            fix?.let { GpsFormat.buildStampDetails(it) },
+            mapBitmap,
+            stamp.anchorX,
+            stamp.anchorY,
+            stamp.scale
+        )
     }
 
     var cameraProvider by remember { mutableStateOf<ProcessCameraProvider?>(null) }
@@ -247,11 +256,10 @@ fun CameraScreen(
                 }
         )
 
-        // In photo mode the draggable card is burned in post-capture; in video mode the
-        // OverlayEffect burns the same panel into the frames, so the preview shows that instead.
-        if (mode == CaptureMode.PHOTO) {
-            DraggableStampBlock(viewModel, fix, mapBitmap, stamp) { fix?.let { openInMaps(context, it) } }
-        }
+        // The draggable card places & sizes the block. Photos burn it in post-capture; videos
+        // burn the same panel (at this position/scale) into the frames via OverlayEffect — the
+        // card is drawn on top of (and covers) its burned twin in the preview.
+        DraggableStampBlock(viewModel, fix, mapBitmap, stamp) { fix?.let { openInMaps(context, it) } }
 
         // Top controls (fixed): theme · accuracy/zoom · open-in-maps.
         Row(

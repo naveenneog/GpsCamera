@@ -15,29 +15,44 @@ class VideoStampOverlay {
 
     @Volatile private var details: GpsFormat.StampDetails? = null
     @Volatile private var map: Bitmap? = null
+    @Volatile private var anchorX: Float = 0.5f
+    @Volatile private var anchorY: Float = 0.86f
+    @Volatile private var userScale: Float = 1f
 
     private var cached: Bitmap? = null
     private var cachedKey: String? = null
     private var cachedW = 0
     private var cachedH = 0
 
-    /** Feed the latest location/map. Cheap; called from the UI whenever the fix changes. */
-    fun update(details: GpsFormat.StampDetails?, map: Bitmap?) {
+    /** Feed the latest location/map and the on-screen block position + size. */
+    fun update(
+        details: GpsFormat.StampDetails?,
+        map: Bitmap?,
+        anchorX: Float = 0.5f,
+        anchorY: Float = 0.86f,
+        userScale: Float = 1f
+    ) {
         this.details = details
         this.map = map
+        this.anchorX = anchorX
+        this.anchorY = anchorY
+        this.userScale = userScale
     }
 
     fun hasContent(): Boolean = details != null
 
     /**
-     * A transparent [width]x[height] bitmap with the stamp panel drawn near the bottom,
-     * rebuilt only when the content or the frame size changes.
+     * A transparent [width]x[height] bitmap with the stamp panel drawn at the current
+     * position/scale, rebuilt only when the content, placement, or frame size changes.
      */
     @Synchronized
     fun bitmapFor(width: Int, height: Int): Bitmap? {
         if (width <= 0 || height <= 0) return null
         val d = details ?: return null
         val m = map
+        val ax = anchorX
+        val ay = anchorY
+        val us = userScale
         val key = buildString {
             append(d.localityLine); append('|')
             append(d.fullAddress); append('|')
@@ -45,7 +60,8 @@ class VideoStampOverlay {
             append(d.dateTimeLine); append('|')
             append(d.countryCode); append('|')
             append(d.temperatureC); append('|')
-            append(System.identityHashCode(m))
+            append(System.identityHashCode(m)); append('|')
+            append(ax); append('|'); append(ay); append('|'); append(us)
         }
         val current = cached
         if (current != null && !current.isRecycled &&
@@ -54,7 +70,7 @@ class VideoStampOverlay {
             return current
         }
         val base = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        PhotoStamper.stamp(base, d, m, anchorX = 0.5f, anchorY = 0.9f)
+        PhotoStamper.stamp(base, d, m, anchorX = ax, anchorY = ay, userScale = us)
         cached = base
         cachedKey = key
         cachedW = width
