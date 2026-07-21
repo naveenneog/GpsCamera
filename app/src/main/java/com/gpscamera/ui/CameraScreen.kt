@@ -26,6 +26,7 @@ import androidx.camera.view.PreviewView
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -51,6 +52,7 @@ import androidx.compose.material.icons.filled.DragIndicator
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.OpenWith
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material.icons.filled.Videocam
@@ -78,6 +80,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -256,10 +259,15 @@ fun CameraScreen(
                 }
         )
 
-        // The draggable card places & sizes the block. Photos burn it in post-capture; videos
-        // burn the same panel (at this position/scale) into the frames via OverlayEffect — the
-        // card is drawn on top of (and covers) its burned twin in the preview.
-        DraggableStampBlock(viewModel, fix, mapBitmap, stamp) { fix?.let { openInMaps(context, it) } }
+        // Photo mode: the visible draggable card (burned in post-capture).
+        // Video mode: the OverlayEffect already burns the panel into the preview + recording,
+        // so we hide the card (no duplicate "old overlay") and show a transparent drag/resize
+        // handle over the burned tag — moving/pinching it repositions the recorded stamp.
+        if (mode == CaptureMode.PHOTO) {
+            DraggableStampBlock(viewModel, fix, mapBitmap, stamp) { fix?.let { openInMaps(context, it) } }
+        } else {
+            VideoStampHandle(viewModel, stamp)
+        }
 
         // Top controls (fixed): theme · accuracy/zoom · open-in-maps.
         Row(
@@ -370,6 +378,71 @@ private fun DraggableStampBlock(
                 }
         ) {
             GpsOverlayCard(fix = fix, mapBitmap = mapBitmap, onOpenMap = onOpenMap)
+        }
+    }
+}
+
+/**
+ * A translucent, framed handle placed over the stamp that OverlayEffect burns into the video.
+ * The burned tag lives in the camera surface (not a Compose element), so this handle is the
+ * grab target: dragging moves it and pinching resizes it, and because it shares the same
+ * [StampTransform] as the burn, the recorded tag follows exactly. The frame is sized to match
+ * the burned panel so it sits right on top of it.
+ */
+@Composable
+private fun VideoStampHandle(viewModel: MainViewModel, stamp: StampTransform) {
+    val density = LocalDensity.current
+    var containerSize by remember { mutableStateOf(IntSize.Zero) }
+    Box(modifier = Modifier.fillMaxSize().onSizeChanged { containerSize = it }) {
+        val cw = containerSize.width.coerceAtLeast(1)
+        val ch = containerSize.height.coerceAtLeast(1)
+        val portrait = ch >= cw
+        val minEdge = minOf(cw, ch).toFloat()
+        val userScale = stamp.scale.coerceIn(0.6f, 2f)
+        val rawScale = minEdge / 1080f * userScale
+        val panelWidthUnits = if (portrait) 980f else 920f
+        val outerMargin = 18f * rawScale
+        val panelWidthPx = minOf(panelWidthUnits * rawScale, cw - outerMargin * 2f).coerceAtLeast(1f)
+        val panelHeightPx = 280f * (panelWidthPx / panelWidthUnits)
+        // The stamp sits low; give the handle a minimum height so part of it clears the bottom
+        // capture controls and stays grabbable. Drag is delta-based, so size doesn't affect aim.
+        val grabHeightPx = maxOf(panelHeightPx, with(density) { 220.dp.toPx() })
+        val leftPx = (stamp.anchorX * cw - panelWidthPx / 2f)
+            .coerceIn(0f, (cw - panelWidthPx).coerceAtLeast(0f))
+        val topPx = (stamp.anchorY * ch - grabHeightPx / 2f)
+            .coerceIn(0f, (ch - grabHeightPx).coerceAtLeast(0f))
+
+        Box(
+            modifier = Modifier
+                .offset { IntOffset(leftPx.roundToInt(), topPx.roundToInt()) }
+                .size(
+                    with(density) { panelWidthPx.toDp() },
+                    with(density) { grabHeightPx.toDp() }
+                )
+                .background(Color(0x14FFFFFF), RoundedCornerShape(16.dp))
+                .border(1.5.dp, Color(0xCCFFFFFF), RoundedCornerShape(16.dp))
+                .pointerInput(Unit) {
+                    detectTransformGestures { _, pan, zoom, _ ->
+                        if (zoom != 1f) viewModel.scaleStampBy(zoom)
+                        val cur = viewModel.stamp.value
+                        viewModel.setStampAnchor(cur.anchorX + pan.x / cw, cur.anchorY + pan.y / ch)
+                    }
+                }
+        ) {
+            M3Surface(
+                shape = RoundedCornerShape(50),
+                color = Color(0xB3000000),
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 8.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                ) {
+                    Icon(Icons.Filled.OpenWith, null, tint = Color.White, modifier = Modifier.size(13.dp))
+                    Spacer(Modifier.size(5.dp))
+                    Text("drag · pinch the stamp", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                }
+            }
         }
     }
 }

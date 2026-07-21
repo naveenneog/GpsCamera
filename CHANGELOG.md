@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.1.5 — 2026-07-21
+
+Video overlay cleanup. Removes the duplicate stamp in the video preview and makes the recorded stamp itself movable.
+
+### Fixed
+- **No more duplicate overlay in the video preview.** The old on-screen info card no longer shows on top of the burned-in stamp while in video mode — you now see only the stamp that actually gets recorded.
+- **The recorded video stamp is now selectable, draggable and pinch-resizable.** A handle sits on the burned tag, so moving or resizing it repositions the stamp that's baked into the video (portrait and landscape).
+
 ## v1.1.4 — 2026-07-18
 
 Video stamp is now movable. The info block can be **dragged and pinch-resized in video mode** — in both portrait and landscape — and the burned-in overlay follows it.
